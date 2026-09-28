@@ -44,8 +44,8 @@ LONG_WINDOW = 50    # days
 MAX_DAILY_LOSS_PCT = 0.03  # stop opening new trades if today's drawdown hits 3%
 ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal-weight across watchlist
 
-API_KEY = os.environ["APCA_API_KEY_ID"]
-API_SECRET = os.environ["APCA_API_SECRET_KEY"]
+API_KEY = os.environ["APCA_API_KEY_ID"].strip()
+API_SECRET = os.environ["APCA_API_SECRET_KEY"].strip()
 WEBHOOK_URL = os.environ.get("NOTIFY_WEBHOOK_URL")  # optional Discord/Slack webhook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
