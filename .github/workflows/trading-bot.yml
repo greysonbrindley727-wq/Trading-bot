@@ -2,13 +2,8 @@ name: Trading Bot
 
 on:
   schedule:
-    # Every hour, 13:00-21:00 UTC, Mon-Fri.
-    # This window covers US market hours (9:30am-4pm ET) across both
-    # standard and daylight time, so no DST math needed. The bot itself
-    # checks whether the market is open and whether it already traded
-    # today, so extra runs outside real trading time are harmless.
     - cron: "0 13-21 * * 1-5"
-  workflow_dispatch: {}  # lets you trigger it manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   run-bot:
