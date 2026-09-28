@@ -1,17 +1,20 @@
 """
-Automated paper-trading bot for Alpaca (v2, more active).
+Automated paper-trading bot for Alpaca (v3, long-running).
 
 Strategy: SMA(9) / SMA(21) trend-following on 15-minute bars.
   - Short average ABOVE long average and no position -> buy
   - Short average BELOW long average and holding     -> sell (close position)
   - Otherwise -> hold
 
-Safe to run often: each symbol has a cooldown so it can't flip-flop
-every run, and new trades stop if the account is down too much today.
+Instead of being launched every 15 minutes, this script starts once, then
+loops by itself every few minutes while the market is open. It stops on its
+own at the close, or before GitHub's 6-hour job limit (a second scheduled
+start takes over for the rest of the day).
 """
 
 import os
 import sys
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -42,6 +45,11 @@ LONG_WINDOW = 21     # bars (about 5 hours)
 COOLDOWN_MINUTES = 30      # min time between trades in the same symbol
 MAX_DAILY_LOSS_PCT = 0.03  # stop opening new trades if today's drawdown hits 3%
 ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal share of account equity
+
+LOOP_SECONDS = 300               # check every 5 minutes
+MAX_RUNTIME_MINUTES = 330        # stop before GitHub's 6-hour job limit
+MAX_WAIT_FOR_OPEN_MINUTES = 120  # if market opens later than this, just exit
+MAX_CONSECUTIVE_ERRORS = 5       # give up (and alert you) after this many failures in a row
 
 API_KEY = os.environ["APCA_API_KEY_ID"].strip()
 API_SECRET = os.environ["APCA_API_SECRET_KEY"].strip()
@@ -108,15 +116,11 @@ def daily_loss_limit_hit(account) -> bool:
     return (last_equity - equity) / last_equity >= MAX_DAILY_LOSS_PCT
 
 
-def run() -> None:
-    if not trading_client.get_clock().is_open:
-        log.info("Market is closed right now, nothing to do.")
-        return
-
+def run_once() -> str:
+    """One pass over the watchlist while the market is open. Returns 'ok' or 'halted'."""
     account = trading_client.get_account()
     if daily_loss_limit_hit(account):
-        notify("Daily loss limit hit: skipping new trades for the rest of today.")
-        return
+        return "halted"
 
     equity = float(account.equity)
     trades = []
@@ -151,12 +155,43 @@ def run() -> None:
 
     if trades:  # only ping you when something actually happened
         notify("Trading bot:\n" + "\n".join(trades))
+    return "ok"
+
+
+def main_loop() -> None:
+    deadline = datetime.now(timezone.utc) + timedelta(minutes=MAX_RUNTIME_MINUTES)
+    errors = 0
+    log.info("Bot started.")
+
+    while datetime.now(timezone.utc) < deadline:
+        try:
+            clock = trading_client.get_clock()
+
+            if not clock.is_open:
+                wait = (clock.next_open - clock.timestamp).total_seconds()
+                if wait > MAX_WAIT_FOR_OPEN_MINUTES * 60:
+                    log.info("Market is closed and won't open soon. Exiting.")
+                    return
+                log.info(f"Market opens in about {int(wait // 60)} min. Waiting.")
+                time.sleep(min(wait + 5, LOOP_SECONDS))
+                continue
+
+            if run_once() == "halted":
+                notify("Daily loss limit hit: no new trades for the rest of today.")
+                return
+            errors = 0
+
+        except Exception as e:
+            errors += 1
+            log.exception(f"Pass failed ({errors}/{MAX_CONSECUTIVE_ERRORS})")
+            if errors >= MAX_CONSECUTIVE_ERRORS:
+                notify(f"Trading bot stopping after repeated errors: {e}")
+                sys.exit(1)
+
+        time.sleep(LOOP_SECONDS)
+
+    log.info("Reached max runtime. The next scheduled run will take over.")
 
 
 if __name__ == "__main__":
-    try:
-        run()
-    except Exception as e:
-        log.exception("Bot crashed")
-        notify(f"Trading bot crashed: {e}")
-        sys.exit(1)
+    main_loop()
