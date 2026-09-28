@@ -2,12 +2,20 @@ name: Trading Bot
 
 on:
   schedule:
-    - cron: "*/15 13-21 * * 1-5"
+    # Odd minutes on purpose: GitHub is busiest at the top of the hour.
+    - cron: "47 12 * * 1-5"   # morning start, waits for the open
+    - cron: "7 18 * * 1-5"    # midday start, takes over from the morning run
   workflow_dispatch:
+
+# Never let two bot runs trade at the same time; a second one waits its turn.
+concurrency:
+  group: trading-bot
+  cancel-in-progress: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 345   # safety cap, under GitHub's 6-hour limit
     steps:
       - uses: actions/checkout@v4
 
