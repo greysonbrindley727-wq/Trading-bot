@@ -1,16 +1,13 @@
 """
-Simple automated paper-trading bot for Alpaca.
+Automated paper-trading bot for Alpaca (v2, more active).
 
-Strategy: SMA(20) / SMA(50) crossover on a fixed watchlist.
-  - Short average crosses ABOVE long average -> buy
-  - Short average crosses BELOW long average -> sell (close position)
+Strategy: SMA(9) / SMA(21) trend-following on 15-minute bars.
+  - Short average ABOVE long average and no position -> buy
+  - Short average BELOW long average and holding     -> sell (close position)
   - Otherwise -> hold
 
-Designed to be safe to run repeatedly (idempotent): it checks whether it has
-already acted on a symbol today before doing anything, so it's fine to run
-this on an hourly schedule and it will still only trade once per day per
-symbol. This avoids needing to get the exact market-open time right across
-daylight saving changes.
+Safe to run often: each symbol has a cooldown so it can't flip-flop
+every run, and new trades stop if the account is down too much today.
 """
 
 import os
@@ -31,22 +28,24 @@ from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.enums import DataFeed
 
 # ---------------------------------------------------------------------------
-# Configuration — edit these to change what/how it trades
+# Configuration: edit these to change what/how it trades
 # ---------------------------------------------------------------------------
 
 WATCHLIST = ["AAPL", "MSFT", "SPY"]
-SHORT_WINDOW = 20   # days
-LONG_WINDOW = 50    # days
+BAR_TIMEFRAME = TimeFrame(15, TimeFrameUnit.Minute)  # 15-minute candles
+SHORT_WINDOW = 9     # bars (about 2 hours)
+LONG_WINDOW = 21     # bars (about 5 hours)
+COOLDOWN_MINUTES = 30      # min time between trades in the same symbol
 MAX_DAILY_LOSS_PCT = 0.03  # stop opening new trades if today's drawdown hits 3%
-ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal-weight across watchlist
+ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal share of account equity
 
 API_KEY = os.environ["APCA_API_KEY_ID"].strip()
 API_SECRET = os.environ["APCA_API_SECRET_KEY"].strip()
-WEBHOOK_URL = os.environ.get("NOTIFY_WEBHOOK_URL")  # optional Discord/Slack webhook
+WEBHOOK_URL = os.environ.get("NOTIFY_WEBHOOK_URL", "").strip()  # optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("tradingbot")
@@ -66,50 +65,32 @@ def notify(message: str) -> None:
         log.warning(f"Could not send notification: {e}")
 
 
-def market_is_open() -> bool:
-    return trading_client.get_clock().is_open
-
-
-def already_acted_today(symbol: str) -> bool:
-    """True if we've already submitted an order for this symbol today."""
-    today = datetime.now(timezone.utc).date()
+def recently_traded(symbol: str) -> bool:
+    """True if we submitted an order for this symbol within the cooldown window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=COOLDOWN_MINUTES)
     req = GetOrdersRequest(status=QueryOrderStatus.ALL, symbols=[symbol], limit=10)
-    for order in trading_client.get_orders(req):
-        if order.submitted_at.date() == today:
-            return True
-    return False
+    return any(o.submitted_at >= cutoff for o in trading_client.get_orders(req))
 
 
-def get_signal(symbol: str) -> str:
-    """Return 'buy', 'sell', or 'hold' based on SMA crossover."""
-    start = datetime.now(timezone.utc) - timedelta(days=120)  # plenty of trading days
+def get_trend(symbol: str):
+    """Return 'up' or 'down' from the SMA comparison, or None if not enough data."""
+    start = datetime.now(timezone.utc) - timedelta(days=7)
     req = StockBarsRequest(
         symbol_or_symbols=[symbol],
-        timeframe=TimeFrame.Day,
+        timeframe=BAR_TIMEFRAME,
         start=start,
-        limit=LONG_WINDOW + 5,
         feed=DataFeed.IEX,  # free data feed, no subscription needed
     )
     bars_df = data_client.get_stock_bars(req).df
+    if bars_df.empty:
+        return None
     closes = bars_df["close"].tolist()
+    if len(closes) < LONG_WINDOW:
+        return None
 
-    if len(closes) < LONG_WINDOW + 1:
-        log.warning(f"{symbol}: not enough price history yet, skipping")
-        return "hold"
-
-    short_ma_today = sum(closes[-SHORT_WINDOW:]) / SHORT_WINDOW
-    long_ma_today = sum(closes[-LONG_WINDOW:]) / LONG_WINDOW
-    short_ma_yday = sum(closes[-SHORT_WINDOW - 1:-1]) / SHORT_WINDOW
-    long_ma_yday = sum(closes[-LONG_WINDOW - 1:-1]) / LONG_WINDOW
-
-    crossed_up = short_ma_yday <= long_ma_yday and short_ma_today > long_ma_today
-    crossed_down = short_ma_yday >= long_ma_yday and short_ma_today < long_ma_today
-
-    if crossed_up:
-        return "buy"
-    if crossed_down:
-        return "sell"
-    return "hold"
+    short_ma = sum(closes[-SHORT_WINDOW:]) / SHORT_WINDOW
+    long_ma = sum(closes[-LONG_WINDOW:]) / LONG_WINDOW
+    return "up" if short_ma > long_ma else "down"
 
 
 def get_position_qty(symbol: str) -> float:
@@ -119,61 +100,57 @@ def get_position_qty(symbol: str) -> float:
         return 0.0  # no open position
 
 
-def daily_loss_limit_hit() -> bool:
-    account = trading_client.get_account()
+def daily_loss_limit_hit(account) -> bool:
     equity = float(account.equity)
     last_equity = float(account.last_equity)  # equity as of previous close
     if last_equity == 0:
         return False
-    drawdown = (last_equity - equity) / last_equity
-    return drawdown >= MAX_DAILY_LOSS_PCT
+    return (last_equity - equity) / last_equity >= MAX_DAILY_LOSS_PCT
 
 
 def run() -> None:
-    if not market_is_open():
-        log.info("Market is closed right now — nothing to do.")
-        return
-
-    if daily_loss_limit_hit():
-        notify("Daily loss limit hit — skipping new trades for the rest of today.")
+    if not trading_client.get_clock().is_open:
+        log.info("Market is closed right now, nothing to do.")
         return
 
     account = trading_client.get_account()
-    buying_power = float(account.buying_power)
-    summary = []
+    if daily_loss_limit_hit(account):
+        notify("Daily loss limit hit: skipping new trades for the rest of today.")
+        return
+
+    equity = float(account.equity)
+    trades = []
 
     for symbol in WATCHLIST:
-        if already_acted_today(symbol):
-            log.info(f"{symbol}: already acted today, skipping.")
+        if recently_traded(symbol):
+            log.info(f"{symbol}: traded recently, cooling down.")
             continue
 
-        signal = get_signal(symbol)
+        trend = get_trend(symbol)
         held_qty = get_position_qty(symbol)
+        log.info(f"{symbol}: trend={trend}, held={held_qty}")
 
-        if signal == "buy" and held_qty == 0:
-            dollars = round(buying_power * ALLOCATION_PER_SYMBOL_PCT, 2)
+        if trend == "up" and held_qty == 0:
+            dollars = round(equity * ALLOCATION_PER_SYMBOL_PCT, 2)
             trading_client.submit_order(MarketOrderRequest(
                 symbol=symbol,
                 notional=dollars,
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.DAY,
             ))
-            summary.append(f"BUY {symbol} (~${dollars:.2f})")
+            trades.append(f"BUY {symbol} (~${dollars:.2f})")
 
-        elif signal == "sell" and held_qty > 0:
+        elif trend == "down" and held_qty > 0:
             trading_client.submit_order(MarketOrderRequest(
                 symbol=symbol,
                 qty=held_qty,
                 side=OrderSide.SELL,
                 time_in_force=TimeInForce.DAY,
             ))
-            summary.append(f"SELL {symbol} ({held_qty} shares)")
+            trades.append(f"SELL {symbol} ({held_qty} shares)")
 
-        else:
-            summary.append(f"{symbol}: hold (signal={signal}, held={held_qty})")
-
-    if summary:
-        notify("Trading bot run:\n" + "\n".join(summary))
+    if trades:  # only ping you when something actually happened
+        notify("Trading bot:\n" + "\n".join(trades))
 
 
 if __name__ == "__main__":
