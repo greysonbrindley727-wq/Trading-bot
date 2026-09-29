@@ -1,20 +1,22 @@
 """
-Automated paper-trading bot for Alpaca (v3, long-running).
+Automated paper-trading bot for Alpaca (v4, long/short, faster).
 
-Strategy: SMA(9) / SMA(21) trend-following on 15-minute bars.
-  - Short average ABOVE long average and no position -> buy
-  - Short average BELOW long average and holding     -> sell (close position)
-  - Otherwise -> hold
+Strategy: SMA(9) / SMA(21) trend-following on 5-minute bars.
+  - Trend up   -> be LONG
+  - Trend down -> be SHORT
+  - Flat/no data -> no change
 
-Instead of being launched every 15 minutes, this script starts once, then
-loops by itself every few minutes while the market is open. It stops on its
-own at the close, or before GitHub's 6-hour job limit (a second scheduled
-start takes over for the rest of the day).
+It checks every 60 seconds and only acts on a symbol once every
+COOLDOWN_MINUTES, so it can't flip back and forth every single check.
+Assumes AAPL, MSFT and SPY stay easy to borrow (true almost all the time
+for large, liquid names); Alpaca will simply reject the order if a symbol
+ever isn't shortable.
 """
 
 import os
 import sys
 import time
+import math
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -28,7 +30,7 @@ except ImportError:
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus, PositionSide
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -39,14 +41,14 @@ from alpaca.data.enums import DataFeed
 # ---------------------------------------------------------------------------
 
 WATCHLIST = ["AAPL", "MSFT", "SPY"]
-BAR_TIMEFRAME = TimeFrame(15, TimeFrameUnit.Minute)  # 15-minute candles
-SHORT_WINDOW = 9     # bars (about 2 hours)
-LONG_WINDOW = 21     # bars (about 5 hours)
-COOLDOWN_MINUTES = 30      # min time between trades in the same symbol
+BAR_TIMEFRAME = TimeFrame(5, TimeFrameUnit.Minute)  # 5-minute candles
+SHORT_WINDOW = 9     # bars (~45 min)
+LONG_WINDOW = 21     # bars (~105 min)
+COOLDOWN_MINUTES = 5       # min time between trades in the same symbol
 MAX_DAILY_LOSS_PCT = 0.03  # stop opening new trades if today's drawdown hits 3%
 ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal share of account equity
 
-LOOP_SECONDS = 300               # check every 5 minutes
+LOOP_SECONDS = 60                # check every 60 seconds
 MAX_RUNTIME_MINUTES = 330        # stop before GitHub's 6-hour job limit
 MAX_WAIT_FOR_OPEN_MINUTES = 120  # if market opens later than this, just exit
 MAX_CONSECUTIVE_ERRORS = 5       # give up (and alert you) after this many failures in a row
@@ -80,9 +82,9 @@ def recently_traded(symbol: str) -> bool:
     return any(o.submitted_at >= cutoff for o in trading_client.get_orders(req))
 
 
-def get_trend(symbol: str):
-    """Return 'up' or 'down' from the SMA comparison, or None if not enough data."""
-    start = datetime.now(timezone.utc) - timedelta(days=7)
+def get_trend_and_price(symbol: str):
+    """Return ('up'/'down'/None, last_close) from the SMA comparison."""
+    start = datetime.now(timezone.utc) - timedelta(days=5)
     req = StockBarsRequest(
         symbol_or_symbols=[symbol],
         timeframe=BAR_TIMEFRAME,
@@ -91,21 +93,25 @@ def get_trend(symbol: str):
     )
     bars_df = data_client.get_stock_bars(req).df
     if bars_df.empty:
-        return None
+        return None, None
     closes = bars_df["close"].tolist()
     if len(closes) < LONG_WINDOW:
-        return None
+        return None, closes[-1]
 
     short_ma = sum(closes[-SHORT_WINDOW:]) / SHORT_WINDOW
     long_ma = sum(closes[-LONG_WINDOW:]) / LONG_WINDOW
-    return "up" if short_ma > long_ma else "down"
+    trend = "up" if short_ma > long_ma else "down"
+    return trend, closes[-1]
 
 
-def get_position_qty(symbol: str) -> float:
+def get_position(symbol):
+    """Return ('long'/'short'/None, qty) — qty is always a positive number."""
     try:
-        return float(trading_client.get_open_position(symbol).qty)
+        pos = trading_client.get_open_position(symbol)
+        side = "long" if pos.side == PositionSide.LONG else "short"
+        return side, float(pos.qty)
     except Exception:
-        return 0.0  # no open position
+        return None, 0.0
 
 
 def daily_loss_limit_hit(account) -> bool:
@@ -130,28 +136,34 @@ def run_once() -> str:
             log.info(f"{symbol}: traded recently, cooling down.")
             continue
 
-        trend = get_trend(symbol)
-        held_qty = get_position_qty(symbol)
-        log.info(f"{symbol}: trend={trend}, held={held_qty}")
+        trend, last_price = get_trend_and_price(symbol)
+        current_side, current_qty = get_position(symbol)
+        log.info(f"{symbol}: trend={trend}, position={current_side} {current_qty}")
 
-        if trend == "up" and held_qty == 0:
-            dollars = round(equity * ALLOCATION_PER_SYMBOL_PCT, 2)
-            trading_client.submit_order(MarketOrderRequest(
-                symbol=symbol,
-                notional=dollars,
-                side=OrderSide.BUY,
-                time_in_force=TimeInForce.DAY,
-            ))
-            trades.append(f"BUY {symbol} (~${dollars:.2f})")
+        if trend is None or last_price is None:
+            continue  # not enough data yet
 
-        elif trend == "down" and held_qty > 0:
-            trading_client.submit_order(MarketOrderRequest(
-                symbol=symbol,
-                qty=held_qty,
-                side=OrderSide.SELL,
-                time_in_force=TimeInForce.DAY,
-            ))
-            trades.append(f"SELL {symbol} ({held_qty} shares)")
+        desired_side = "long" if trend == "up" else "short"
+        if current_side == desired_side:
+            continue  # already positioned correctly, nothing to do
+
+        target_qty = math.floor((equity * ALLOCATION_PER_SYMBOL_PCT) / last_price)
+
+        # Order size: enough to close whatever we currently hold, plus open
+        # the new target position in the desired direction (0 if flat).
+        closing_qty = current_qty if current_side else 0
+        order_qty = target_qty + closing_qty
+        if order_qty <= 0:
+            continue  # can't afford even 1 share right now
+
+        order_side = OrderSide.BUY if desired_side == "long" else OrderSide.SELL
+        trading_client.submit_order(MarketOrderRequest(
+            symbol=symbol,
+            qty=order_qty,
+            side=order_side,
+            time_in_force=TimeInForce.DAY,
+        ))
+        trades.append(f"{symbol}: now {desired_side.upper()} (order for {order_qty} sh)")
 
     if trades:  # only ping you when something actually happened
         notify("Trading bot:\n" + "\n".join(trades))
