@@ -4,6 +4,6 @@
   "rsi_overbought": 70,
   "stop_loss_pct": 0.006,
   "take_profit_pct": 0.012,
-  "last_tuned": "2026-09-30T02:47:16.874851+00:00",
+  "last_tuned": "2026-10-01T00:53:06.524175+00:00",
   "backtest_return_pct": 9.6
 }
