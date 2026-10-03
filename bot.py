@@ -1,5 +1,7 @@
 """
-Automated paper-trading bot for Alpaca (v6, dashboard edition).
+Automated paper-trading bot for Alpaca (v6.1, dashboard edition).
+
+File version: 6.1.0 (6.1.0: bracket orders now stay active overnight instead of expiring at the close)
 
 What it does is the same as v5: RSI mean-reversion on 1-minute bars, long and
 short, with every entry protected by a bracket order (stop-loss + take-profit
@@ -51,6 +53,7 @@ from publisher import Publisher, utc_now_iso
 
 STRATEGY = RSIReversion()
 
+VERSION = "6.1.0"
 WATCHLIST = ["AAPL", "MSFT", "SPY"]
 ALLOCATION_PER_SYMBOL_PCT = 1.0 / len(WATCHLIST)  # equal share of account equity
 MAX_DAILY_LOSS_PCT = 0.03   # stop opening new trades if today's drawdown hits 3%
@@ -229,7 +232,7 @@ def enter_position(symbol, decision, equity, cfg):
             symbol=symbol,
             qty=qty,
             side=order_side,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=TimeInForce.GTC,   # keeps the stop-loss/take-profit alive overnight
             order_class=OrderClass.BRACKET,
             stop_loss=StopLossRequest(stop_price=stop_price),
             take_profit=TakeProfitRequest(limit_price=target_price),
