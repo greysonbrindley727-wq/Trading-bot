@@ -1,0 +1,1 @@
+{"updated_at":"2026-10-03T02:02:01+00:00","strategies":[{"id":"rsi-reversion","name":"RSI Reversion","description":"Bets that a sharp drop or spike on the 1-minute chart will snap back. It goes long when RSI falls to the oversold level and short when RSI rises to the overbought level. Every entry comes with its own stop-loss and take-profit, which Alpaca manages."}]}
