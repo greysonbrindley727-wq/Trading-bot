@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%232563c9%27/%3E%3Cpath d=%27M6 22l6-7 5 4 9-11%27 fill=%27none%27 stroke=%27white%27 stroke-width=%273%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+<title>Trading Bot Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout concept: one scrolling instrument panel. Account figures lead, then the
+   account curve, then the strategy and how it reads each symbol right now, then the
+   record of orders, checks and tuning in tabs. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --raised: #f1f0ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #2a78d6;
+  --long: #2a78d6;
+  --short: #eb6834;
+  --gain: #0ca30c;
+  --gain-text: #006300;
+  --loss: #d03b3b;
+  --loss-text: #d03b3b;
+  --warn: #fab219;
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --raised: #242422;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-3: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --long: #3987e5;
+    --short: #d95926;
+    --gain: #0ca30c;
+    --gain-text: #0ca30c;
+    --loss: #e66767;
+    --loss-text: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --raised: #242422;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --ink-3: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --accent: #3987e5;
+  --long: #3987e5;
+  --short: #d95926;
+  --gain: #0ca30c;
+  --gain-text: #0ca30c;
+  --loss: #e66767;
+  --loss-text: #e66767;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.45 var(--font);
+}
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 17px; font-weight: 600; }
+h2 { font-size: 15px; font-weight: 600; text-wrap: balance; }
+h3 { font-size: 13px; font-weight: 600; }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--ink-2); }
+.small { font-size: 12px; }
+.mono { font-family: var(--mono); }
+.gain { color: var(--gain-text); }
+.loss { color: var(--loss-text); }
+
+/* ---- header ---- */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--page); border-bottom: 1px solid var(--grid);
+}
+.top-in {
+  max-width: 1180px; margin: 0 auto; padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.brand .sub { color: var(--ink-2); font-size: 12px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn, .sel select {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; min-height: 30px;
+}
+.btn:hover, .sel select:hover { background: var(--raised); }
+.btn[aria-pressed="true"] { border-color: var(--accent); }
+.upd { color: var(--ink-2); font-size: 12px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 56px; display: flex; flex-direction: column; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 0; }
+.card-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 12px; }
+.card-h .sub { color: var(--ink-2); font-size: 12px; }
+.grid-2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.grid-2 > * { min-width: 0; }
+
+/* ---- chips and banners ---- */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px;
+  border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 500;
+  white-space: nowrap; color: var(--ink);
+}
+.chip .g { color: var(--tone, var(--ink-3)); font-size: 10px; line-height: 1; }
+.t-good { --tone: var(--gain); }
+.t-bad { --tone: var(--loss); }
+.t-warn { --tone: var(--warn); }
+.t-long { --tone: var(--long); }
+.t-short { --tone: var(--short); }
+.t-idle { --tone: var(--ink-3); }
+.banner {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px;
+  border-radius: 8px; background: var(--raised); border: 1px solid var(--border);
+}
+.banner .g { color: var(--tone, var(--ink-3)); font-size: 14px; line-height: 1.3; }
+.banner b { font-weight: 600; }
+.banner .btn { margin-top: 6px; }
+
+/* ---- summary ---- */
+.summary { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .summary { grid-template-columns: minmax(300px, 1.15fr) 2fr; } }
+.stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-width: 0; }
+.k { color: var(--ink-2); font-size: 12px; }
+.v { font-size: 20px; font-weight: 600; margin-top: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.d { color: var(--ink-2); font-size: 12px; margin-top: 2px; }
+.hero { display: flex; flex-direction: column; justify-content: center; }
+.big { font-size: clamp(34px, 4.4vw, 46px); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em; margin: 4px 0 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---- charts ---- */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--grid); margin-bottom: 12px; overflow-x: auto; }
+.tabs button {
+  background: none; border: 0; padding: 8px 12px; cursor: pointer; color: var(--ink-2);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 500; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { background: var(--surface); border: 0; padding: 4px 10px; cursor: pointer; color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); font-weight: 500; }
+.chart-host { position: relative; min-height: 120px; }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axisline { stroke: var(--axis); stroke-width: 1; }
+svg .ref { stroke: var(--ink-3); stroke-width: 1; }
+svg .tick { fill: var(--ink-3); font-size: 11px; font-family: var(--font); }
+svg .reflabel { fill: var(--ink-2); font-size: 11px; font-family: var(--font); }
+svg .ln { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+svg .area { fill: var(--accent); opacity: 0.10; }
+svg .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+svg .cross { stroke: var(--ink-3); stroke-width: 1; }
+svg .endlabel { fill: var(--ink); font-size: 12px; font-weight: 600; font-family: var(--font); }
+svg .bar-up { fill: var(--gain); }
+svg .bar-down { fill: var(--loss); }
+svg .bar-hot { filter: brightness(1.15); }
+svg .hit { fill: transparent; }
+.tip {
+  position: absolute; top: 0; pointer-events: none; z-index: 5; min-width: 120px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); transform: translateX(-50%);
+}
+.tip-v { font-weight: 600; font-size: 14px; }
+.tip-s { color: var(--ink-2); font-size: 11px; }
+.tip-d { font-size: 12px; margin-top: 2px; }
+.empty { color: var(--ink-2); padding: 28px 8px; text-align: center; }
+details.data { margin-top: 10px; }
+details.data summary { cursor: pointer; color: var(--ink-2); font-size: 12px; }
+.delta { font-weight: 500; }
+
+/* ---- strategy ---- */
+.strat { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.strat > * { min-width: 0; }
+.rules { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); }
+.rules li { margin: 3px 0; }
+.kv { width: 100%; border-collapse: collapse; }
+.kv th, .kv td { padding: 6px 0; border-bottom: 1px solid var(--grid); text-align: left; vertical-align: top; }
+.kv th { font-weight: 400; color: var(--ink-2); padding-right: 12px; }
+.kv td { font-weight: 500; white-space: nowrap; }
+.kv .hint { display: block; font-weight: 400; color: var(--ink-3); font-size: 11px; white-space: normal; }
+.syms { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sym-chip { font-family: var(--mono); font-size: 12px; background: var(--raised); border-radius: 4px; padding: 2px 7px; }
+
+/* ---- market read ---- */
+.symcards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.symcard { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.sc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sc-sym { font-family: var(--mono); font-weight: 500; font-size: 17px; }
+.sc-price { font-weight: 600; font-size: 15px; }
+.gauge-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); }
+.gauge-row b { color: var(--ink); font-weight: 600; }
+.gauge { position: relative; height: 8px; border-radius: 4px; background: var(--raised); margin: 4px 0 24px; }
+.gauge .zone { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: 0.22; }
+.gauge .mk { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
+.gauge .mk span { position: absolute; top: 100%; left: 0; transform: translateX(-50%); margin-top: 3px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.gauge .gdot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); transform: translate(-50%, -50%); }
+.checks { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.checks li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; color: var(--ink-2); }
+.checks .on { color: var(--ink); }
+.checks .mark { width: 14px; flex: none; text-align: center; color: var(--ink-3); font-weight: 600; }
+.checks .on .mark { color: var(--accent); }
+.reason { font-size: 13px; color: var(--ink); }
+.spark { min-height: 56px; }
+.stamp { color: var(--ink-3); font-size: 11px; }
+
+/* ---- tables ---- */
+.tablewrap { overflow-x: auto; }
+table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.t th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 6px 10px 6px 0; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+table.t td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+table.t .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.t td.nowrap, table.t th.nowrap { white-space: nowrap; }
+table.t td.why { min-width: 220px; color: var(--ink-2); }
+table.t tbody tr:last-child td { border-bottom: 0; }
+.subhead { margin: 18px 0 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.subhead:first-child { margin-top: 0; }
+.filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+
+.foot { color: var(--ink-3); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.foot a { color: var(--ink-2); }
+.loading { opacity: 0.6; transition: opacity 0.15s; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><h1>Trading Bot</h1><span class="sub" id="brand-sub">Paper account</span></div>
+    <div class="controls">
+      <label class="sel" id="sel-wrap" hidden><span class="sr">Strategy</span><select id="strategy"></select></label>
+      <span id="health"></span>
+      <span class="upd" id="updated"></span>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+      <button class="btn" id="auto" type="button" aria-pressed="true">Auto-refresh on</button>
+      <button class="btn" id="demo" type="button" aria-pressed="false">Sample data</button>
+      <button class="btn" id="theme" type="button">Theme: auto</button>
+    </div>
+  </div>
+</header>
+<main class="wrap" id="app"><p class="empty">Loading…</p></main>
+<noscript><p class="empty">This dashboard needs JavaScript.</p></noscript>
+
+<script>
+(() => {
+"use strict";
+
+/* ======================= configuration ======================= */
+const CONFIG = {
+  owner: "greysonbrindley727-wq",
+  repo: "Trading-bot",
+  dataBranch: "dashboard-data",   // where the bot publishes its data files
+  mainBranch: "main",             // where tuning_log.csv lives
+  refreshSeconds: 60,
+  staleMinutes: 15,               // "no heartbeat" if the bot says it's running but hasn't reported for this long
+};
+const params = new URLSearchParams(location.search);
+const IS_PAGES = /\.github\.io$/i.test(location.hostname);
+if (IS_PAGES) {
+  CONFIG.owner = location.hostname.split(".")[0];
+  const seg = location.pathname.split("/")[1];
+  if (seg) CONFIG.repo = seg;
+}
+const RAW = "https://raw.githubusercontent.com/" + CONFIG.owner + "/" + CONFIG.repo;
+const DATA_BASE = params.get("data") || RAW + "/" + CONFIG.dataBranch;   // ?data= lets you point at test files
+const MAIN_BASE = params.get("main") || RAW + "/" + CONFIG.mainBranch;
+const LIVE_CAPABLE = IS_PAGES || params.has("data");
+
+/* ======================= small helpers ======================= */
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+const $ = (sel) => document.querySelector(sel);
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  if (props) for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const SVGNS = "http://www.w3.org/2000/svg";
+function sv(tag, attrs) {
+  const el = document.createElementNS(SVGNS, tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const usd2 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bad = (n) => n == null || Number.isNaN(n);
+const money = (n, d = 2) => bad(n) ? "–" : (d === 0 ? usd0 : usd2).format(n);
+const smoney = (n, d = 2) => bad(n) ? "–" : (n > 0 ? "+" : n < 0 ? "−" : "") + (d === 0 ? usd0 : usd2).format(Math.abs(n));
+const spct = (n, d = 2) => bad(n) ? "–" : (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(d) + "%";
+const tone = (n) => bad(n) || n === 0 ? "" : n > 0 ? "gain" : "loss";
+const arrow = (n) => bad(n) || n === 0 ? "" : n > 0 ? "▲ " : "▼ ";
+const num = (n, d = 0) => bad(n) ? "–" : Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
+
+const ET = "America/New_York";
+const fTime = new Intl.DateTimeFormat("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" });
+const fDay = new Intl.DateTimeFormat("en-US", { timeZone: ET, month: "short", day: "numeric" });
+const fKey = new Intl.DateTimeFormat("en-CA", { timeZone: ET, year: "numeric", month: "2-digit", day: "2-digit" });
+const fHour = new Intl.DateTimeFormat("en-US", { timeZone: ET, hour: "numeric" });
+const fHourNum = new Intl.DateTimeFormat("en-US", { timeZone: ET, hour: "numeric", hourCycle: "h23" });
+const etKey = (ms) => fKey.format(ms);
+const stamp = (ms) => fDay.format(ms) + ", " + fTime.format(ms) + " ET";
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 45) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+
+function niceTicks(min, max, count) {
+  if (!(max > min)) { const pad = Math.abs(min) * 0.001 || 1; min -= pad; max += pad; }
+  const raw = (max - min) / count, pow = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / pow;
+  const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * pow;
+  const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step, ticks = [];
+  for (let v = lo; v <= hi + step * 0.001; v += step) ticks.push(+v.toFixed(10));
+  return { ticks, lo, hi, step };
+}
+const fmtTick = (v, step) => step >= 1 ? usd0.format(v) : usd2.format(v);
+
+/* ======================= parsing ======================= */
+function parseEquity(text) {
+  const out = [];
+  for (const row of text.trim().split(/\r?\n/).slice(1)) {
+    const [t, v] = row.split(",");
+    const ms = Date.parse(t), val = parseFloat(v);
+    if (!Number.isNaN(ms) && !Number.isNaN(val)) out.push({ t: ms, v: val });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+function parseJSONL(text) {
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch (e) { /* skip a damaged line */ }
+  }
+  return out;
+}
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const head = lines[0].split(",").map((s) => s.trim());
+  return lines.slice(1).map((l) => { const c = l.split(","), o = {}; head.forEach((k, i) => { o[k] = c[i]; }); return o; });
+}
+async function getText(url) {
+  const r = await fetch(url + (url.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" });
+  if (!r.ok) throw new Error(url.split("/").slice(-2).join("/") + " returned " + r.status);
+  return r.text();
+}
+const getJSON = async (url) => JSON.parse(await getText(url));
+
+async function loadLive() {
+  const idx = await getJSON(DATA_BASE + "/strategies.json");
+  const list = idx.strategies || [];
+  if (!list.length) throw new Error("strategies.json has no strategies yet");
+  const id = list.some((s) => s.id === ui.strategy) ? ui.strategy : list[0].id;
+  ui.strategy = id;
+  const base = DATA_BASE + "/" + encodeURIComponent(id);
+  const [status, equity, decisions, orders, tuning] = await Promise.all([
+    getJSON(base + "/status.json"),
+    getText(base + "/equity.csv").then(parseEquity).catch(() => []),
+    getText(base + "/decisions.jsonl").then(parseJSONL).catch(() => []),
+    getText(base + "/orders.jsonl").then(parseJSONL).catch(() => []),
+    getText(MAIN_BASE + "/tuning_log.csv").then(parseCSV).catch(() => []),
+  ]);
+  return { strategies: list, status, equity, decisions, orders, tuning, demo: false, loadedAt: Date.now() };
+}
+
+/* ======================= sample data ======================= */
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function etParts(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: ET, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(ms).map((x) => [x.type, x.value]));
+  return { y: +p.year, mo: +p.month, d: +p.day, hh: +p.hour, mm: +p.minute };
+}
+function etToMs(y, mo, d, hh, mm) {
+  const want = Date.UTC(y, mo - 1, d, hh, mm);
+  let guess = want;
+  for (let i = 0; i < 3; i++) {
+    const p = etParts(guess), got = Date.UTC(p.y, p.mo - 1, p.d, p.hh, p.mm);
+    if (got === want) break;
+    guess += want - got;
+  }
+  return guess;
+}
+function makeDemo() {
+  const rnd = mulberry32(20261001);
+  const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const now = Date.now();
+  const np = etParts(now);
+
+  // the last 10 weekdays (today included once the session has opened)
+  const days = [];
+  const cursor = new Date(Date.UTC(np.y, np.mo - 1, np.d));
+  const nowMin = np.hh * 60 + np.mm;
+  if (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6 || nowMin < 9 * 60 + 30) cursor.setUTCDate(cursor.getUTCDate() - 1);
+  while (days.length < 10) {
+    if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) days.unshift({ y: cursor.getUTCFullYear(), mo: cursor.getUTCMonth() + 1, d: cursor.getUTCDate() });
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+
+  const equity = [];
+  let eq = 100000, prevClose = 100000, openNow = false;
+  days.forEach((day, di) => {
+    const open = etToMs(day.y, day.mo, day.d, 9, 30);
+    if (di > 0) prevClose = equity[equity.length - 1].v;
+    for (let k = 0; k <= 78; k++) {
+      const t = open + k * 300000;
+      if (t > now) { openNow = true; break; }
+      eq += 1.4 + gauss() * 36;
+      equity.push({ t, v: Math.round(eq * 100) / 100 });
+    }
+  });
+  const last = equity[equity.length - 1];
+  const anchor = last.t;
+  const todayStart = equity.findIndex((p) => etKey(p.t) === etKey(last.t));
+  prevClose = todayStart > 0 ? equity[todayStart - 1].v : 100000;
+
+  // three symbols: price, RSI that ends at a chosen reading, and what the bot did
+  const spec = {
+    AAPL: { price: 232.4, rsi: 26.8, qty: 143, dir: "long" },
+    MSFT: { price: 421.8, rsi: 52.3 },
+    SPY: { price: 571.2, rsi: 71.4, qty: 58, dir: "short" },
+  };
+  const decisions = [], orders = [], recent = [], positions = [], openOrders = [];
+  const N = 90, low = 30, high = 70;
+  let oid = 1;
+  const newId = () => "demo-" + String(oid++).padStart(4, "0");
+
+  for (const [sym, sp] of Object.entries(spec)) {
+    let r = 50, p = sp.price * (1 + gauss() * 0.002);
+    const rs = [], ps = [];
+    for (let i = 0; i < N; i++) {
+      r += (50 - r) * 0.12 + gauss() * 5.5;
+      r = Math.max(34, Math.min(66, r));
+      p *= 1 + gauss() * 0.00035;
+      rs.push(r); ps.push(p);
+    }
+    for (let j = 0; j < 12; j++) { const w = (j + 1) / 12, i = N - 12 + j; rs[i] = rs[i] * (1 - w) + sp.rsi * w; }
+    ps[N - 1] = sp.price;
+    let held = false;
+    for (let i = 0; i < N; i++) {
+      const t = anchor - (N - 1 - i) * 60000;
+      const rsi = Math.round(rs[i] * 100) / 100;
+      const signal = rsi <= low ? "long" : rsi >= high ? "short" : "none";
+      const checks = [
+        { label: "RSI at or below " + low + " (oversold)", ok: rsi <= low },
+        { label: "RSI at or above " + high + " (overbought)", ok: rsi >= high },
+      ];
+      let action = "none", detail = null;
+      const reason = signal === "long" ? "RSI " + rsi.toFixed(1) + " is at or below " + low + ". The price looks oversold, so the bot looks for a bounce (long)."
+        : signal === "short" ? "RSI " + rsi.toFixed(1) + " is at or above " + high + ". The price looks overbought, so the bot looks for a pullback (short)."
+        : "RSI " + rsi.toFixed(1) + " is between " + low + " and " + high + ". No signal.";
+      if (signal !== "none") {
+        if (!held && sp.dir === signal) {
+          held = true; action = "order_submitted"; detail = "Bracket order sent for " + sp.qty + " shares.";
+          checks.push({ label: "No open position or pending order", ok: true });
+          const px = Math.round(ps[i] * 100) / 100, sgn = signal === "long" ? 1 : -1;
+          const stop = Math.round(px * (1 - sgn * 0.004) * 100) / 100, tgt = Math.round(px * (1 + sgn * 0.008) * 100) / 100;
+          const id = newId();
+          orders.push({ t: new Date(t).toISOString(), symbol: sym, direction: signal, side: signal === "long" ? "buy" : "sell", qty: sp.qty, ref_price: px, reason, stop_price: stop, take_profit_price: tgt, status: "submitted", order_id: id, alpaca_status: "accepted" });
+          recent.push({ id, symbol: sym, side: signal === "long" ? "buy" : "sell", qty: sp.qty, filled_qty: sp.qty, type: "market", order_class: "bracket", status: "filled", limit_price: null, stop_price: null, filled_avg_price: px, submitted_at: new Date(t).toISOString(), filled_at: new Date(t + 1500).toISOString() });
+          const exitSide = signal === "long" ? "sell" : "buy";
+          openOrders.push({ id: newId(), symbol: sym, side: exitSide, qty: sp.qty, filled_qty: 0, type: "stop", order_class: "bracket", status: "held", limit_price: null, stop_price: stop, filled_avg_price: null, submitted_at: new Date(t).toISOString(), filled_at: null });
+          openOrders.push({ id: newId(), symbol: sym, side: exitSide, qty: sp.qty, filled_qty: 0, type: "limit", order_class: "bracket", status: "new", limit_price: tgt, stop_price: null, filled_avg_price: null, submitted_at: new Date(t).toISOString(), filled_at: null });
+          const cur = sp.price;
+          positions.push({ symbol: sym, side: signal, qty: sp.qty, avg_entry_price: px, current_price: cur, market_value: (signal === "long" ? 1 : -1) * sp.qty * cur, unrealized_pl: sgn * (cur - px) * sp.qty, unrealized_plpc: sgn * (cur - px) / px });
+        } else if (held) {
+          checks.push({ label: "Already holding a position in this symbol", ok: false });
+          action = "skipped"; detail = "Already holding a position in this symbol";
+        }
+      }
+      decisions.push({ t: new Date(t).toISOString(), symbol: sym, price: Math.round(ps[i] * 100) / 100, indicators: { rsi }, signal, reason, checks, action, detail });
+    }
+  }
+  decisions.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+
+  // earlier days: a few finished trades, one rejection, one order that could not be sized
+  const past = [
+    { di: 2, sym: "SPY", dir: "long", px: 566.4, win: true, hh: 10, mm: 41 },
+    { di: 3, sym: "AAPL", dir: "short", px: 229.1, win: false, hh: 11, mm: 18 },
+    { di: 4, sym: "MSFT", dir: "short", px: 424.9, win: null, hh: 13, mm: 5, reject: true },
+    { di: 5, sym: "MSFT", dir: "long", px: 418.2, win: true, hh: 14, mm: 52 },
+    { di: 6, sym: "AAPL", dir: "long", px: 227.6, win: true, hh: 9, mm: 48 },
+    { di: 7, sym: "SPY", dir: "short", px: 573.9, win: false, hh: 15, mm: 12, small: true },
+  ];
+  for (const o of past) {
+    const day = days[Math.max(0, days.length - 1 - o.di)];
+    const t = etToMs(day.y, day.mo, day.d, o.hh, o.mm), sgn = o.dir === "long" ? 1 : -1;
+    const stop = Math.round(o.px * (1 - sgn * 0.004) * 100) / 100, tgt = Math.round(o.px * (1 + sgn * 0.008) * 100) / 100;
+    const qty = o.small ? 0 : Math.floor(33333 / o.px);
+    const reason = o.dir === "long" ? "RSI 27.9 is at or below 30. The price looks oversold, so the bot looks for a bounce (long)." : "RSI 72.6 is at or above 70. The price looks overbought, so the bot looks for a pullback (short).";
+    const base = { t: new Date(t).toISOString(), symbol: o.sym, direction: o.dir, side: o.dir === "long" ? "buy" : "sell", qty, ref_price: o.px, reason, stop_price: stop, take_profit_price: tgt };
+    if (o.small) { orders.push({ ...base, status: "not_placed", message: "The position size rounds down to 0 shares at this price." }); continue; }
+    if (o.reject) { orders.push({ ...base, status: "rejected", message: "asset " + o.sym + " cannot be sold short" }); continue; }
+    const id = newId(), exitId = newId();
+    orders.push({ ...base, status: "submitted", order_id: id, alpaca_status: "accepted" });
+    recent.push({ id, symbol: o.sym, side: base.side, qty, filled_qty: qty, type: "market", order_class: "bracket", status: "filled", limit_price: null, stop_price: null, filled_avg_price: o.px, submitted_at: base.t, filled_at: new Date(t + 1800).toISOString() });
+    const exitPx = o.win ? tgt : stop;
+    recent.push({ id: exitId, symbol: o.sym, side: sgn > 0 ? "sell" : "buy", qty, filled_qty: qty, type: o.win ? "limit" : "stop", order_class: "bracket", status: "filled", limit_price: o.win ? tgt : null, stop_price: o.win ? null : stop, filled_avg_price: exitPx, submitted_at: base.t, filled_at: new Date(t + 24 * 60000).toISOString() });
+  }
+  orders.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  recent.sort((a, b) => Date.parse(b.filled_at || b.submitted_at) - Date.parse(a.filled_at || a.submitted_at));
+
+  const gross = positions.reduce((s, p) => s + Math.abs(p.market_value), 0);
+  const lastTuned = etToMs(days[days.length - 1].y, days[days.length - 1].mo, days[days.length - 1].d, 17, 0) - (openNow ? 86400000 : 0);
+  const rows = [];
+  [["AAPL", 14, 30, 70, 0.004, 0.008, 0.62, 41], ["MSFT", 21, 25, 75, 0.003, 0.006, 0.31, 28], ["SPY", 14, 30, 70, 0.004, 0.008, 0.44, 36],
+   ["AAPL", 14, 35, 65, 0.004, 0.008, 0.55, 52], ["MSFT", 10, 30, 70, 0.006, 0.012, 0.27, 33], ["SPY", 21, 30, 70, 0.003, 0.006, 0.38, 24]].forEach((r, i) => {
+    rows.push({ date: fKey.format(lastTuned - (1 + Math.floor(i / 3)) * 86400000), symbol: r[0], rsi_period: r[1], rsi_oversold: r[2], rsi_overbought: r[3], stop_loss_pct: r[4], take_profit_pct: r[5], return_pct: (r[6] / 100).toFixed(4), num_trades: r[7] });
+  });
+  rows.unshift(...[["AAPL", 14, 30, 70, 0.004, 0.008, 0.71, 44], ["MSFT", 14, 30, 70, 0.004, 0.008, 0.33, 31], ["SPY", 14, 30, 70, 0.004, 0.008, 0.52, 39]].map((r) => ({
+    date: fKey.format(lastTuned), symbol: r[0], rsi_period: r[1], rsi_oversold: r[2], rsi_overbought: r[3], stop_loss_pct: r[4], take_profit_pct: r[5], return_pct: (r[6] / 100).toFixed(4), num_trades: r[7] })));
+
+  const status = {
+    schema: 1,
+    updated_at: new Date(openNow ? now : anchor + 30000).toISOString(),
+    strategy: {
+      id: "rsi-reversion", name: "RSI Reversion",
+      description: "Bets that a sharp drop or spike on the 1-minute chart will snap back. It goes long when RSI falls to the oversold level and short when RSI rises to the overbought level. Every entry comes with its own stop-loss and take-profit, which Alpaca manages.",
+      timeframe: "1-minute bars",
+      rules: ["Go long when RSI(14) falls to 30 or lower.", "Go short when RSI(14) rises to 70 or higher.", "Each entry gets a stop-loss 0.40% away and a take-profit 0.80% away.", "Only one position per symbol at a time. The stop-loss or take-profit closes it."],
+      params: [
+        { label: "RSI period", display: "14 bars", hint: "How many 1-minute bars RSI looks back over" },
+        { label: "Oversold level", display: "30", hint: "RSI at or below this triggers a long" },
+        { label: "Overbought level", display: "70", hint: "RSI at or above this triggers a short" },
+        { label: "Stop-loss", display: "0.40%", hint: "Distance from entry where the position is closed at a loss" },
+        { label: "Take-profit", display: "0.80%", hint: "Distance from entry where the position is closed at a gain" },
+      ],
+      indicators: [{ key: "rsi", label: "RSI (14)", decimals: 1, range: [0, 100], marks: [{ value: 30, label: "Oversold" }, { value: 70, label: "Overbought" }] }],
+      symbols: ["AAPL", "MSFT", "SPY"],
+      settings: [
+        { label: "Max daily loss", display: "3.0%", hint: "New trades stop for the day if the account falls this far" },
+        { label: "Position size", display: "33% of equity", hint: "Per symbol, rounded down to whole shares" },
+        { label: "Check interval", display: "60 sec", hint: "How often the bot looks at the market" },
+        { label: "Cooldown", display: "5 min", hint: "Minimum gap between order attempts in one symbol" },
+      ],
+    },
+    bot: { state: openNow ? "running" : "stopped", message: openNow ? "Checking the market." : "The market is closed. The next scheduled run starts before the open.", started_at: new Date(anchor - 3 * 3600000).toISOString(), passes: 187, last_pass_at: new Date(openNow ? now - 20000 : anchor).toISOString(), errors_in_row: 0, last_error: null, last_error_at: null, run_url: null },
+    market: { is_open: openNow },
+    account: { equity: last.v, last_equity: prevClose, day_pnl: last.v - prevClose, day_pnl_pct: (last.v - prevClose) / prevClose * 100, cash: Math.round((last.v - gross) * 100) / 100, buying_power: Math.round(last.v * 4 * 100) / 100, status: "ACTIVE", starting_equity: 100000, tracking_since: new Date(equity[0].t).toISOString() },
+    positions, open_orders: openOrders, recent_orders: recent,
+    tuning: { last_tuned: new Date(lastTuned).toISOString(), backtest_return_pct: 0.71 },
+  };
+  return { strategies: [{ id: "rsi-reversion", name: "RSI Reversion" }], status, equity, decisions, orders, tuning: rows, demo: true, loadedAt: Date.now() };
+}
+
+/* ======================= state ======================= */
+const ui = {
+  range: "day", tab: store.get("tab") || "orders", feed: "signals",
+  strategy: null, auto: store.get("auto") !== "off", demo: false, theme: store.get("theme") || "auto",
+};
+ui.demo = params.has("demo") || !LIVE_CAPABLE;
+let model = null, lastError = null, charts = [], inflight = false;
+const app = $("#app");
+
+/* ======================= derived data ======================= */
+function dailyPnl(pts, start) {
+  const days = [];
+  let cur = null;
+  for (const p of pts) {
+    const k = etKey(p.t);
+    if (!cur || cur.key !== k) { cur = { key: k, t: p.t, close: p.v }; days.push(cur); }
+    cur.close = p.v; cur.t = p.t;
+  }
+  let prev = start != null ? start : (pts[0] ? pts[0].v : 0);
+  return days.map((d) => { const pnl = d.close - prev; prev = d.close; return { key: d.key, label: fDay.format(d.t), v: pnl, close: d.close, t: d.t }; });
+}
+function bySymbol(decisions) {
+  const latest = {}, hist = {};
+  for (const d of decisions) {
+    latest[d.symbol] = d;
+    (hist[d.symbol] = hist[d.symbol] || []).push(d);
+  }
+  for (const k of Object.keys(hist)) hist[k] = hist[k].slice(-90);
+  return { latest, hist };
+}
+function health(m) {
+  const b = m.status.bot || {}, upd = Date.parse(m.status.updated_at), age = Date.now() - upd;
+  const stale = !Number.isNaN(upd) && age > CONFIG.staleMinutes * 60000;
+  const quiet = { tone: "warn", glyph: "!", label: "No heartbeat", detail: "The bot last reported " + ago(upd) + " but says it is still running. The run may have been cancelled or crashed. Open the run log to check." };
+  switch (b.state) {
+    case "running": return stale ? quiet : { tone: "good", glyph: "●", label: "Running", detail: b.message };
+    case "waiting": return stale ? quiet : { tone: "good", glyph: "●", label: "Waiting for open", detail: b.message };
+    case "starting": return stale ? quiet : { tone: "good", glyph: "●", label: "Starting", detail: b.message };
+    case "error": return { tone: "bad", glyph: "✕", label: "Errors", detail: (b.last_error || b.message) };
+    case "halted": return { tone: "warn", glyph: "!", label: "Halted", detail: b.message };
+    default: return { tone: "idle", glyph: "○", label: "Idle", detail: b.message };
+  }
+}
+
+/* ======================= small components ======================= */
+function chip(label, t, glyph) { return h("span", { class: "chip t-" + t }, h("span", { class: "g", "aria-hidden": "true" }, glyph), label); }
+function signalChip(d) {
+  if (!d) return chip("No reading yet", "idle", "○");
+  if (d.signal === "long") return chip("Long signal", "long", "▲");
+  if (d.signal === "short") return chip("Short signal", "short", "▼");
+  if (d.signal === "error") return chip("Check failed", "bad", "✕");
+  return chip("No signal", "idle", "○");
+}
+function actionChip(a) {
+  switch (a) {
+    case "order_submitted": return chip("Order sent", "good", "✓");
+    case "order_rejected": return chip("Rejected", "bad", "✕");
+    case "not_placed": return chip("Not placed", "warn", "!");
+    case "skipped": return chip("Skipped", "idle", "–");
+    default: return null;
+  }
+}
+function dirChip(dir) { return dir === "long" ? chip("Long", "long", "▲") : chip("Short", "short", "▼"); }
+function card(title, sub, ...body) {
+  return h("section", { class: "card" }, (title || sub) ? h("div", { class: "card-h" }, title ? h("h2", { text: title }) : null, sub ? h("p", { class: "sub", text: sub }) : null) : null, ...body);
+}
+function tableOf(head, rows, opts = {}) {
+  const t = h("table", { class: "t" });
+  t.append(h("thead", null, h("tr", null, head.map((c) => h("th", { class: (c.num ? "num " : "") + (c.nowrap ? "nowrap" : ""), text: c.label })))));
+  t.append(h("tbody", null, rows.map((r) => h("tr", null, r.map((cell, i) => {
+    const col = head[i] || {};
+    return h("td", { class: (col.num ? "num " : "") + (col.nowrap ? "nowrap " : "") + (col.cls || "") }, cell);
+  })))));
+  return h("div", { class: "tablewrap" }, t);
+}
+const emptyNote = (text) => h("p", { class: "empty", text });
+function dataDetails(label, node) {
+  return h("details", { class: "data" }, h("summary", { text: label }), node);
+}
+
+/* ======================= charts ======================= */
+function drawLine(host, pts, o) {
+  host.replaceChildren();
+  const n = pts.length;
+  if (n < 2) { host.append(emptyNote(o.empty)); return; }
+  const W = Math.max(260, Math.floor(host.clientWidth)), H = 260, m = { l: 66, r: 18, t: 16, b: 28 };
+  const vals = pts.map((p) => p.v);
+  if (o.baseline != null) vals.push(o.baseline);
+  const { ticks, lo, hi, step } = niceTicks(Math.min(...vals), Math.max(...vals), 4);
+  const X = (i) => m.l + (i / (n - 1)) * (W - m.l - m.r);
+  const Y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const svg = sv("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", tabindex: "0", "aria-label": o.label });
+
+  ticks.forEach((t) => {
+    const y = Y(t);
+    svg.append(sv("line", { x1: m.l, x2: W - m.r, y1: y, y2: y, class: "grid" }));
+    const tx = sv("text", { x: m.l - 8, y: y + 4, class: "tick", "text-anchor": "end" });
+    tx.textContent = fmtTick(t, step);
+    svg.append(tx);
+  });
+  o.xticks(pts).forEach(({ i, label }) => {
+    const tx = sv("text", { x: X(i), y: H - 8, class: "tick", "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle" });
+    tx.textContent = label;
+    svg.append(tx);
+  });
+  if (o.baseline != null) {
+    const y = Y(o.baseline);
+    svg.append(sv("line", { x1: m.l, x2: W - m.r, y1: y, y2: y, class: "ref" }));
+    const tx = sv("text", { x: m.l + 6, y: y - 5, class: "reflabel" });
+    tx.textContent = o.baselineName + " " + money(o.baseline, 0);
+    svg.append(tx);
+  }
+  const line = pts.map((p, i) => (i ? "L" : "M") + X(i).toFixed(1) + "," + Y(p.v).toFixed(1)).join("");
+  svg.append(sv("path", { d: line + "L" + X(n - 1).toFixed(1) + "," + (H - m.b) + "L" + X(0).toFixed(1) + "," + (H - m.b) + "Z", class: "area" }));
+  svg.append(sv("path", { d: line, class: "ln" }));
+
+  const lastP = pts[n - 1];
+  svg.append(sv("circle", { cx: X(n - 1), cy: Y(lastP.v), r: 4, class: "dot" }));
+  const endLabel = sv("text", { x: X(n - 1) - 8, y: Y(lastP.v) - 10, class: "endlabel", "text-anchor": "end" });
+  endLabel.textContent = money(lastP.v, 0);
+  svg.append(endLabel);
+
+  const cross = sv("line", { y1: m.t, y2: H - m.b, class: "cross", visibility: "hidden" });
+  const hov = sv("circle", { r: 5, class: "dot", visibility: "hidden" });
+  const hit = sv("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, class: "hit" });
+  svg.append(cross, hov, hit);
+  const tip = h("div", { class: "tip", hidden: true });
+  host.append(svg, tip);
+
+  function show(i) {
+    i = Math.max(0, Math.min(n - 1, i));
+    const p = pts[i], x = X(i);
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.setAttribute("visibility", "visible");
+    hov.setAttribute("cx", x); hov.setAttribute("cy", Y(p.v)); hov.setAttribute("visibility", "visible");
+    tip.replaceChildren(
+      h("div", { class: "tip-v", text: money(p.v) }),
+      h("div", { class: "tip-s", text: stamp(p.t) }),
+      o.baseline != null ? h("div", { class: "tip-d " + tone(p.v - o.baseline), text: arrow(p.v - o.baseline) + smoney(p.v - o.baseline) + " vs " + o.baselineName.toLowerCase() }) : null,
+    );
+    tip.hidden = false;
+    tip.style.left = Math.min(Math.max(x, 80), W - 80) + "px";
+  }
+  function hide() { cross.setAttribute("visibility", "hidden"); hov.setAttribute("visibility", "hidden"); tip.hidden = true; }
+  const idxAt = (e) => { const r = svg.getBoundingClientRect(); return Math.round(((e.clientX - r.left) * (W / r.width) - m.l) / (W - m.l - m.r) * (n - 1)); };
+  hit.addEventListener("pointermove", (e) => show(idxAt(e)));
+  hit.addEventListener("pointerdown", (e) => show(idxAt(e)));
+  hit.addEventListener("pointerleave", hide);
+  let kb = n - 1;
+  svg.addEventListener("focus", () => show(kb));
+  svg.addEventListener("blur", hide);
+  svg.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { kb = Math.max(0, kb - 1); show(kb); e.preventDefault(); }
+    if (e.key === "ArrowRight") { kb = Math.min(n - 1, kb + 1); show(kb); e.preventDefault(); }
+  });
+}
+
+function drawBars(host, rows, o) {
+  host.replaceChildren();
+  const n = rows.length;
+  if (!n) { host.append(emptyNote(o.empty)); return; }
+  const W = Math.max(260, Math.floor(host.clientWidth)), H = 260, m = { l: 66, r: 12, t: 22, b: 28 };
+  const vs = rows.map((r) => r.v);
+  const { ticks, lo, hi, step } = niceTicks(Math.min(0, ...vs), Math.max(0, ...vs), 4);
+  const Y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const band = (W - m.l - m.r) / n, bw = Math.min(24, band * 0.62);
+  const svg = sv("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": o.label });
+  ticks.forEach((t) => {
+    const y = Y(t);
+    svg.append(sv("line", { x1: m.l, x2: W - m.r, y1: y, y2: y, class: t === 0 ? "axisline" : "grid" }));
+    const tx = sv("text", { x: m.l - 8, y: y + 4, class: "tick", "text-anchor": "end" });
+    tx.textContent = fmtTick(t, step);
+    svg.append(tx);
+  });
+  const every = n <= 8 ? 1 : n <= 16 ? 2 : 3;
+  const tip = h("div", { class: "tip", hidden: true });
+  const y0 = Y(0), r4 = 4;
+  rows.forEach((r, i) => {
+    const cx = m.l + band * (i + 0.5), x = cx - bw / 2, y1 = Y(r.v);
+    const up = r.v >= 0, hgt = Math.max(1, Math.abs(y1 - y0)), rr = Math.min(r4, hgt / 2);
+    const yTop = up ? y0 - hgt : y0, yBot = up ? y0 : y0 + hgt;
+    const d = up
+      ? "M" + x + "," + yBot + "L" + x + "," + (yTop + rr) + "Q" + x + "," + yTop + " " + (x + rr) + "," + yTop + "L" + (x + bw - rr) + "," + yTop + "Q" + (x + bw) + "," + yTop + " " + (x + bw) + "," + (yTop + rr) + "L" + (x + bw) + "," + yBot + "Z"
+      : "M" + x + "," + yTop + "L" + x + "," + (yBot - rr) + "Q" + x + "," + yBot + " " + (x + rr) + "," + yBot + "L" + (x + bw - rr) + "," + yBot + "Q" + (x + bw) + "," + yBot + " " + (x + bw) + "," + (yBot - rr) + "L" + (x + bw) + "," + yTop + "Z";
+    const bar = sv("path", { d, class: up ? "bar-up" : "bar-down" });
+    svg.append(bar);
+    if ((n - 1 - i) % every === 0) {
+      const tx = sv("text", { x: cx, y: H - 8, class: "tick", "text-anchor": "middle" });
+      tx.textContent = r.label;
+      svg.append(tx);
+    }
+    if (i === n - 1) {
+      const lx = Math.min(Math.max(cx, m.l + 24), W - m.r - 24);
+      const lab = sv("text", { x: lx, y: up ? y1 - 6 : y1 + 14, class: "endlabel", "text-anchor": "middle" });
+      lab.textContent = smoney(r.v, 0);
+      svg.append(lab);
+    }
+    const hit = sv("rect", { x: m.l + band * i, y: m.t - 8, width: band, height: H - m.t - m.b + 8, class: "hit", tabindex: "0", "aria-label": r.label + ": " + smoney(r.v) });
+    const on = () => {
+      bar.classList.add("bar-hot");
+      tip.replaceChildren(
+        h("div", { class: "tip-v " + tone(r.v), text: arrow(r.v) + smoney(r.v) }),
+        h("div", { class: "tip-s", text: r.label + (r.partial ? " (in progress)" : "") }),
+        h("div", { class: "tip-s", text: "Account closed at " + money(r.close) }),
+      );
+      tip.hidden = false;
+      tip.style.left = Math.min(Math.max(cx, 80), W - 80) + "px";
+    };
+    const off = () => { bar.classList.remove("bar-hot"); tip.hidden = true; };
+    hit.addEventListener("pointerenter", on); hit.addEventListener("pointermove", on);
+    hit.addEventListener("pointerleave", off); hit.addEventListener("focus", on); hit.addEventListener("blur", off);
+    svg.append(hit);
+  });
+  host.append(svg, tip);
+}
+
+function drawSpark(host, vals, ind) {
+  host.replaceChildren();
+  if (vals.length < 3) return;
+  const W = Math.max(200, Math.floor(host.clientWidth)), H = 56, m = { l: 4, r: 8, t: 6, b: 6 };
+  const [rmin, rmax] = ind.range;
+  const X = (i) => m.l + (i / (vals.length - 1)) * (W - m.l - m.r);
+  const Y = (v) => m.t + (1 - (v - rmin) / (rmax - rmin)) * (H - m.t - m.b);
+  const svg = sv("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": ind.label + " over the last " + vals.length + " checks" });
+  (ind.marks || []).forEach((mk) => svg.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(mk.value), y2: Y(mk.value), class: "grid" })));
+  svg.append(sv("path", { d: vals.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + "," + Y(v).toFixed(1)).join(""), class: "ln" }));
+  svg.append(sv("circle", { cx: X(vals.length - 1), cy: Y(vals[vals.length - 1]), r: 4, class: "dot" }));
+  host.append(svg);
+}
+
+// Alpaca errors arrive as JSON text like {"code":40310000,"message":"asset MSFT cannot be sold short"}.
+// Show just the readable part.
+function plainMessage(text) {
+  if (!text) return "";
+  let t = String(text).trim();
+  try {
+    const j = JSON.parse(t);
+    if (j && j.message) t = String(j.message);
+  } catch (e) { /* not JSON, keep as is */ }
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(t) ? t : t + ".";
+}
+
+function drawAll() { charts.forEach((c) => { try { c(); } catch (e) { console.error(e); } }); }
+
+/* ======================= sections ======================= */
+function renderBanners(m) {
+  const out = [];
+  if (m.demo) {
+    out.push(h("div", { class: "banner", role: "status" },
+      h("span", { class: "g t-warn", "aria-hidden": "true" }, "!"),
+      h("div", null, h("b", { text: "Sample data. " }), "These numbers are made up to show the layout. Your bot's real records appear here once it has run.",
+        LIVE_CAPABLE ? h("div", null, h("button", { class: "btn", type: "button", onclick: () => setDemo(false) }, "Show my bot's data")) : null)));
+  }
+  const hl = health(m);
+  if (!m.demo && (hl.tone === "warn" || hl.tone === "bad")) {
+    out.push(h("div", { class: "banner", role: "alert" },
+      h("span", { class: "g t-" + hl.tone, "aria-hidden": "true" }, hl.glyph),
+      h("div", null, h("b", { text: hl.label + ". " }), hl.detail || "",
+        m.status.bot && m.status.bot.run_url ? h("div", null, h("a", { href: m.status.bot.run_url, target: "_blank", rel: "noopener" }, "Open the run log")) : null)));
+  }
+  return out;
+}
+
+function renderSummary(m) {
+  const a = m.status.account || {}, pos = m.status.positions || [];
+  const total = !bad(a.equity) && !bad(a.starting_equity) ? a.equity - a.starting_equity : null;
+  const totalPct = total != null && a.starting_equity ? total / a.starting_equity * 100 : null;
+  const since = a.tracking_since ? fDay.format(Date.parse(a.tracking_since)) : null;
+  const gross = pos.reduce((s, p) => s + Math.abs(p.market_value || 0), 0);
+  const todayKey = etKey(Date.now());
+  const todays = m.orders.filter((o) => etKey(Date.parse(o.t)) === todayKey);
+  const placed = todays.filter((o) => o.status === "submitted").length;
+  const rejected = todays.filter((o) => o.status === "rejected").length;
+  const unplaced = todays.filter((o) => o.status === "not_placed").length;
+  const stat = (k, v, d, cls) => h("div", { class: "stat" }, h("div", { class: "k", text: k }), h("div", { class: "v " + (cls || ""), text: v }), h("div", { class: "d", text: d }));
+  return h("div", { class: "summary" },
+    h("div", { class: "card hero" },
+      h("div", { class: "k", text: "Account value" }),
+      h("div", { class: "big", text: money(a.equity) }),
+      h("div", { class: "d", text: "Alpaca paper account" + (a.status ? " · " + String(a.status).toLowerCase() : "") })),
+    h("div", { class: "stats" },
+      stat("Today", arrow(a.day_pnl) + smoney(a.day_pnl), spct(a.day_pnl_pct) + " vs previous close", tone(a.day_pnl)),
+      stat("Since tracking began", arrow(total) + smoney(total), (spct(totalPct) + (since ? " since " + since : "")), tone(total)),
+      stat("Open positions", String(pos.length), pos.length ? money(gross, 0) + " exposed" : "Flat, holding cash"),
+      stat("Orders today", String(placed), [rejected ? rejected + " rejected" : null, unplaced ? unplaced + " not placed" : null].filter(Boolean).join(" · ") || (todays.length ? "All accepted" : "None yet today"))));
+}
+
+function renderCurve(m) {
+  const a = m.status.account || {}, pts = m.equity;
+  const lastKey = pts.length ? etKey(pts[pts.length - 1].t) : null;
+  const dayPts = pts.filter((p) => etKey(p.t) === lastKey);
+  const isToday = lastKey === etKey(Date.now());
+  const range = ui.range;
+  const shown = range === "day" ? dayPts : pts;
+  const baseline = range === "day" ? (isToday || true ? a.last_equity : null) : (a.starting_equity != null ? a.starting_equity : (pts[0] && pts[0].v));
+  const baselineName = range === "day" ? "Previous close" : "Starting balance";
+  const change = shown.length ? shown[shown.length - 1].v - (baseline != null ? baseline : shown[0].v) : null;
+  const host = h("div", { class: "chart-host" });
+
+  const xticks = range === "day"
+    ? (ps) => { const out = []; let lastH = null; ps.forEach((p, i) => { const hr = Number(fHourNum.format(p.t)); if (hr !== lastH) { out.push({ i, label: fHour.format(p.t) }); lastH = hr; } }); return thin(out, 6); }
+    : (ps) => { const out = []; let lastD = null; ps.forEach((p, i) => { const k = etKey(p.t); if (k !== lastD) { out.push({ i, label: fDay.format(p.t) }); lastD = k; } }); return thin(out, 6); };
+  charts.push(() => drawLine(host, shown, {
+    label: "Account value over time", baseline, baselineName, xticks,
+    empty: "No account history yet. A point is recorded about every 5 minutes while the market is open.",
+  }));
+
+  const rows = shown.length > 60 ? shown.filter((_, i) => i % Math.ceil(shown.length / 60) === 0 || i === shown.length - 1) : shown;
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Time range" },
+    h("button", { type: "button", "aria-pressed": String(range === "day"), onclick: () => { ui.range = "day"; render(); } }, isToday ? "Today" : (lastKey ? "Last session" : "Today")),
+    h("button", { type: "button", "aria-pressed": String(range === "all"), onclick: () => { ui.range = "all"; render(); } }, "All time"));
+  return card("Account value", null,
+    h("div", { class: "card-h", style: "margin-top:-4px" }, seg,
+      h("p", { class: "delta " + tone(change) }, change == null ? "" : arrow(change) + smoney(change) + " " + (range === "day" ? "vs previous close" : "since tracking began"))),
+    host,
+    shown.length ? dataDetails("Show values", tableOf([{ label: "Time (ET)", nowrap: true }, { label: "Account value", num: true }], rows.map((p) => [stamp(p.t), money(p.v)]).reverse())) : null);
+}
+function thin(list, max) {
+  if (list.length <= max) return list;
+  const stride = Math.ceil(list.length / max);
+  return list.filter((_, i) => i % stride === 0);
+}
+
+function renderDaily(m) {
+  const a = m.status.account || {};
+  const days = dailyPnl(m.equity, a.starting_equity).slice(-20);
+  const todayKey = etKey(Date.now()), open = m.status.market && m.status.market.is_open;
+  days.forEach((d) => { d.partial = d.key === todayKey && open; });
+  const host = h("div", { class: "chart-host" });
+  charts.push(() => drawBars(host, days, { label: "Profit and loss for each trading day", empty: "Daily results appear after the first full session." }));
+  return card("Profit and loss by day", "Last " + days.length + " sessions", host,
+    days.length ? dataDetails("Show values", tableOf([{ label: "Day", nowrap: true }, { label: "Result", num: true }, { label: "Account closed at", num: true }],
+      days.slice().reverse().map((d) => [d.label, h("span", { class: tone(d.v) }, smoney(d.v)), money(d.close)]))) : null);
+}
+
+function renderStrategy(m) {
+  const s = m.status.strategy || {}, t = m.status.tuning || {};
+  const left = h("div", null,
+    h("h3", { text: s.name || "Strategy" }),
+    h("p", { class: "muted", style: "margin-top:4px", text: s.description || "" }),
+    h("div", { class: "small muted", style: "margin-top:12px; font-weight:500", text: "How it decides" }),
+    h("ul", { class: "rules" }, (s.rules || []).map((r) => h("li", { text: r }))),
+    h("div", { class: "small muted", style: "margin-top:12px; font-weight:500", text: "Watching · " + (s.timeframe || "") }),
+    h("div", { class: "syms" }, (s.symbols || []).map((x) => h("span", { class: "sym-chip", text: x }))));
+  const kv = (rows) => h("table", { class: "kv" }, h("tbody", null, rows.map((r) => h("tr", null, h("th", { scope: "row" }, r.label, r.hint ? h("span", { class: "hint", text: r.hint }) : null), h("td", { text: r.display })))));
+  const right = h("div", null,
+    h("h3", { text: "Parameters" }), kv(s.params || []),
+    h("h3", { style: "margin-top:16px", text: "Risk and timing" }), kv(s.settings || []),
+    t.last_tuned ? h("p", { class: "small muted", style: "margin-top:12px", text: "The nightly tuner last ran " + ago(Date.parse(t.last_tuned)) + (t.backtest_return_pct != null ? " and picked these settings from a backtest that returned " + spct(Number(t.backtest_return_pct)) + "." : ".") })
+      : h("p", { class: "small muted", style: "margin-top:12px", text: "The nightly tuner has not changed these settings yet." }));
+  return card("Strategy", "What the bot is running", h("div", { class: "strat" }, left, right));
+}
+
+function gaugeNode(ind, value) {
+  const [lo, hi] = ind.range, pct = (v) => Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100));
+  const g = h("div", { class: "gauge", role: "img", "aria-label": ind.label + " " + value.toFixed(ind.decimals ?? 1) });
+  const marks = ind.marks || [];
+  if (marks.length >= 2) {
+    g.append(h("div", { class: "zone", style: "left:0;width:" + pct(marks[0].value) + "%" }));
+    g.append(h("div", { class: "zone", style: "left:" + pct(marks[marks.length - 1].value) + "%;right:0" }));
+  }
+  marks.forEach((mk) => g.append(h("div", { class: "mk", style: "left:" + pct(mk.value) + "%" }, h("span", { text: mk.label + " " + mk.value }))));
+  g.append(h("div", { class: "gdot", style: "left:" + pct(value) + "%" }));
+  return g;
+}
+
+function renderRead(m) {
+  const s = m.status.strategy || {}, inds = s.indicators || [], pos = m.status.positions || [];
+  const { latest, hist } = bySymbol(m.decisions);
+  const syms = (s.symbols || []).slice();
+  Object.keys(latest).forEach((k) => { if (!syms.includes(k)) syms.push(k); });
+  if (!syms.length) return card("How the bot reads the market", null, emptyNote("No checks recorded yet. They appear once the bot runs during market hours."));
+  const cards = syms.map((sym) => {
+    const d = latest[sym], p = pos.find((x) => x.symbol === sym);
+    const top = h("div", { class: "sc-top" },
+      h("span", { class: "sc-sym", text: sym }),
+      h("span", { class: "sc-price", text: d && d.price != null ? money(d.price) : "–" }),
+      signalChip(d));
+    const body = [top];
+    if (p) body.push(h("div", { class: "small" }, dirChip(p.side), " ", h("span", { class: "muted", text: num(p.qty) + " shares · open P&L " }), h("span", { class: tone(p.unrealized_pl), text: smoney(p.unrealized_pl) })));
+    else body.push(h("div", { class: "small muted", text: "No open position" }));
+    if (d) {
+      const shown = new Set();
+      inds.forEach((ind) => {
+        const val = d.indicators ? d.indicators[ind.key] : undefined;
+        if (val == null) return;
+        shown.add(ind.key);
+        body.push(h("div", null,
+          h("div", { class: "gauge-row" }, h("span", { text: ind.label }), h("b", { text: Number(val).toFixed(ind.decimals ?? 1) })),
+          ind.range ? gaugeNode(ind, Number(val)) : null));
+      });
+      Object.entries(d.indicators || {}).filter(([k]) => !shown.has(k)).forEach(([k, v]) => body.push(h("div", { class: "gauge-row" }, h("span", { text: k }), h("b", { text: String(v) }))));
+      if ((d.checks || []).length) body.push(h("ul", { class: "checks" }, d.checks.map((c) => h("li", { class: c.ok ? "on" : "" }, h("span", { class: "mark", "aria-hidden": "true", text: c.ok ? "✓" : "✕" }), h("span", null, h("span", { class: "sr", text: c.ok ? "Met: " : "Not met: " }), c.label)))));
+      body.push(h("p", { class: "reason", text: d.reason }));
+      const ac = actionChip(d.action);
+      if (ac) body.push(h("div", { class: "small" }, ac, d.detail ? h("span", { class: "muted", text: " " + d.detail }) : null));
+      const ind0 = inds.find((i) => i.range && d.indicators && d.indicators[i.key] != null);
+      if (ind0) {
+        const vals = (hist[sym] || []).map((x) => x.indicators && x.indicators[ind0.key]).filter((v) => v != null).map(Number);
+        const sh = h("div", { class: "spark" });
+        charts.push(() => drawSpark(sh, vals, ind0));
+        body.push(sh);
+      }
+      body.push(h("div", { class: "stamp", text: "Checked " + ago(Date.parse(d.t)) + " · " + stamp(Date.parse(d.t)) }));
+    } else body.push(h("p", { class: "muted", text: "Nothing recorded for this symbol yet." }));
+    return h("div", { class: "symcard" }, body);
+  });
+  return card("How the bot reads the market", "Latest check for each symbol", h("div", { class: "symcards" }, cards));
+}
+
+function renderPositions(m) {
+  const pos = m.status.positions || [];
+  if (!pos.length) return card("Open positions", null, emptyNote("Flat. The bot is holding cash."));
+  return card("Open positions", pos.length + " open", tableOf(
+    [{ label: "Symbol" }, { label: "Side" }, { label: "Shares", num: true }, { label: "Entry", num: true }, { label: "Last", num: true }, { label: "Market value", num: true }, { label: "Open P&L", num: true }],
+    pos.map((p) => [h("span", { class: "mono", text: p.symbol }), dirChip(p.side), num(p.qty), money(p.avg_entry_price), money(p.current_price), money(p.market_value),
+      h("span", { class: tone(p.unrealized_pl) }, arrow(p.unrealized_pl) + smoney(p.unrealized_pl) + " (" + spct((p.unrealized_plpc || 0) * 100) + ")")])));
+}
+
+function resultChip(o, live) {
+  if (o.status === "rejected") return chip("Rejected", "bad", "✕");
+  if (o.status === "not_placed") return chip("Not placed", "warn", "!");
+  const st = live ? live.status : o.alpaca_status;
+  if (st === "filled") return chip("Filled", "good", "✓");
+  if (st === "canceled" || st === "expired" || st === "rejected") return chip(st === "rejected" ? "Rejected" : "Canceled", "idle", "–");
+  return chip("Sent", "idle", "○");
+}
+function fillKind(o) {
+  if (o.order_class !== "bracket") return "Order";
+  if (o.type === "stop" || o.type === "stop_limit") return "Stop-loss";
+  if (o.type === "limit") return "Take-profit";
+  return "Entry";
+}
+
+function renderOrdersTab(m) {
+  const live = new Map((m.status.recent_orders || []).map((o) => [o.id, o]));
+  const attempts = m.orders.slice().reverse().slice(0, 60);
+  const open = m.status.open_orders || [];
+  const fills = (m.status.recent_orders || []).filter((o) => o.status === "filled").slice(0, 25);
+  return h("div", null,
+    h("div", { class: "subhead" }, h("h3", { text: "Orders the bot placed or tried to place" }), h("span", { class: "small muted", text: attempts.length + " shown" })),
+    attempts.length ? tableOf(
+      [{ label: "When", nowrap: true }, { label: "Symbol" }, { label: "Side" }, { label: "Shares", num: true }, { label: "Price then", num: true }, { label: "Stop", num: true }, { label: "Target", num: true }, { label: "Result" }, { label: "Why or what happened", cls: "why" }],
+      attempts.map((o) => [stamp(Date.parse(o.t)), h("span", { class: "mono", text: o.symbol }), dirChip(o.direction), num(o.qty), money(o.ref_price), money(o.stop_price), money(o.take_profit_price), resultChip(o, live.get(o.order_id)), plainMessage(o.message) || o.reason || ""]))
+      : emptyNote("No orders yet. The bot only orders when a signal fires and nothing else is blocking it."),
+    h("div", { class: "subhead" }, h("h3", { text: "Exit orders waiting at Alpaca" }), h("span", { class: "small muted", text: "Stop-loss and take-profit orders for open positions" })),
+    open.length ? tableOf(
+      [{ label: "Symbol" }, { label: "Closes with" }, { label: "Kind" }, { label: "Triggers at", num: true }, { label: "Shares", num: true }, { label: "Status" }],
+      open.map((o) => [h("span", { class: "mono", text: o.symbol }), o.side === "buy" ? "Buy" : "Sell", o.type === "stop" || o.type === "stop_limit" ? "Stop-loss" : o.type === "limit" ? "Take-profit" : o.type || "", money(o.stop_price != null ? o.stop_price : o.limit_price), num(o.qty), chip(String(o.status).replace(/_/g, " "), "idle", "○")]))
+      : emptyNote("Nothing waiting."),
+    h("div", { class: "subhead" }, h("h3", { text: "Recent fills" }), h("span", { class: "small muted", text: "Straight from Alpaca" })),
+    fills.length ? tableOf(
+      [{ label: "When", nowrap: true }, { label: "Symbol" }, { label: "What" }, { label: "Side" }, { label: "Shares", num: true }, { label: "Fill price", num: true }],
+      fills.map((o) => [stamp(Date.parse(o.filled_at || o.submitted_at)), h("span", { class: "mono", text: o.symbol }), fillKind(o), o.side === "buy" ? "Buy" : "Sell", num(o.filled_qty != null ? o.filled_qty : o.qty), money(o.filled_avg_price)]))
+      : emptyNote("No fills yet."));
+}
+
+function renderFeedTab(m) {
+  const all = m.decisions.slice().reverse();
+  const rows = (ui.feed === "signals" ? all.filter((d) => d.signal !== "none" || d.action !== "none") : all).slice(0, 150);
+  const mk = (id, label) => h("button", { type: "button", "aria-pressed": String(ui.feed === id), onclick: () => { ui.feed = id; render(); } }, label);
+  return h("div", null,
+    h("div", { class: "filters" }, h("div", { class: "seg", role: "group", "aria-label": "Which checks to show" }, mk("signals", "Signals and orders"), mk("all", "Every check")), h("span", { class: "small muted", text: rows.length + " shown, newest first" })),
+    rows.length ? tableOf(
+      [{ label: "When", nowrap: true }, { label: "Symbol" }, { label: "Price", num: true }, { label: "Readings" }, { label: "Signal" }, { label: "Result" }, { label: "Why", cls: "why" }],
+      rows.map((d) => [stamp(Date.parse(d.t)), h("span", { class: "mono", text: d.symbol }), money(d.price), Object.entries(d.indicators || {}).map(([k, v]) => k.toUpperCase() + " " + v).join(", ") || "–", signalChip(d), actionChip(d.action) || "", (d.detail && d.action !== "none" ? d.detail + " " : "") + d.reason]))
+      : emptyNote(ui.feed === "signals" ? "No signals yet. Switch to “Every check” to see each reading." : "No checks recorded yet."));
+}
+
+function renderTuneTab(m) {
+  const t = m.status.tuning || {}, rows = m.tuning.slice().reverse().slice(0, 40);
+  return h("div", null,
+    h("p", { class: "muted", style: "margin-bottom:10px", text: "Each night the tuner backtests a grid of settings against the last 10 days of 1-minute prices and keeps the best result for the next day. This is a re-fit of a few numbers to recent history, so a good backtest does not guarantee future results." }),
+    t.last_tuned ? h("p", { class: "small", style: "margin-bottom:10px", text: "Last run: " + stamp(Date.parse(t.last_tuned)) }) : null,
+    rows.length ? tableOf(
+      [{ label: "Date", nowrap: true }, { label: "Symbol" }, { label: "RSI period", num: true }, { label: "Oversold", num: true }, { label: "Overbought", num: true }, { label: "Stop-loss", num: true }, { label: "Take-profit", num: true }, { label: "Backtest return", num: true }, { label: "Trades", num: true }],
+      rows.map((r) => [r.date, h("span", { class: "mono", text: r.symbol }), r.rsi_period, r.rsi_oversold, r.rsi_overbought, spct(Number(r.stop_loss_pct) * 100), spct(Number(r.take_profit_pct) * 100).replace("+", ""), h("span", { class: tone(Number(r.return_pct)) }, spct(Number(r.return_pct) * 100)), r.num_trades]))
+      : emptyNote("No tuning history yet. The nightly tuning job writes one row per symbol after the market closes."));
+}
+
+function renderActivity(m) {
+  const tabs = [["orders", "Orders"], ["feed", "Every check"], ["tuning", "Tuning"]];
+  const tabBar = h("div", { class: "tabs", role: "tablist" }, tabs.map(([id, label]) => h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), onclick: () => { ui.tab = id; store.set("tab", id); render(); } }, label)));
+  const panel = ui.tab === "feed" ? renderFeedTab(m) : ui.tab === "tuning" ? renderTuneTab(m) : renderOrdersTab(m);
+  return card("Activity", null, tabBar, h("div", { role: "tabpanel" }, panel));
+}
+
+function renderFoot(m) {
+  const b = m.status.bot || {};
+  return h("div", { class: "foot" },
+    h("span", { text: m.demo ? "Sample data" : "Data from " + CONFIG.owner + "/" + CONFIG.repo + " (branch " + CONFIG.dataBranch + ")" }),
+    h("span", { text: "Times are US Eastern, the market's clock" }),
+    b.run_url ? h("a", { href: b.run_url, target: "_blank", rel: "noopener" }, "Latest run log") : null);
+}
+
+/* ======================= page ======================= */
+function renderHeader() {
+  const m = model;
+  $("#brand-sub").textContent = m ? "Paper account · " + ((m.status.strategy && m.status.strategy.name) || "") : "Paper account";
+  const sel = $("#strategy"), wrap = $("#sel-wrap");
+  if (m && m.strategies.length > 1) {
+    wrap.hidden = false;
+    sel.replaceChildren(...m.strategies.map((s) => h("option", { value: s.id, text: s.name || s.id, selected: s.id === ui.strategy })));
+  } else wrap.hidden = true;
+  const hl = m ? health(m) : null, hs = $("#health");
+  hs.replaceChildren(...(hl ? [chip(hl.label, hl.tone, hl.glyph)] : []));
+  hs.title = hl && hl.detail ? hl.detail : "";
+  updateAgo();
+  $("#auto").setAttribute("aria-pressed", String(ui.auto));
+  $("#auto").textContent = ui.auto ? "Auto-refresh on" : "Auto-refresh off";
+  $("#demo").setAttribute("aria-pressed", String(ui.demo));
+  $("#demo").hidden = !LIVE_CAPABLE;
+  $("#theme").hidden = !LIVE_CAPABLE;
+  $("#theme").textContent = "Theme: " + ui.theme;
+}
+function updateAgo() {
+  const el = $("#updated");
+  if (!model) { el.textContent = ""; return; }
+  const upd = Date.parse(model.status.updated_at);
+  el.textContent = model.demo ? "" : "Bot reported " + (Number.isNaN(upd) ? "–" : ago(upd));
+}
+
+function render() {
+  charts = [];
+  if (!model) {
+    app.replaceChildren(lastError ? renderEmpty(lastError) : h("p", { class: "empty", text: "Loading…" }));
+    renderHeader();
+    return;
+  }
+  app.replaceChildren(...renderBanners(model), renderSummary(model),
+    h("div", { class: "grid-2" }, renderCurve(model), renderDaily(model)),
+    renderStrategy(model), renderRead(model), renderPositions(model), renderActivity(model), renderFoot(model));
+  renderHeader();
+  requestAnimationFrame(drawAll);
+}
+
+function renderEmpty(err) {
+  return card("No bot data yet", null,
+    h("p", { class: "muted", text: "This page reads files the bot publishes to the “" + CONFIG.dataBranch + "” branch of " + CONFIG.owner + "/" + CONFIG.repo + ". That branch is created the first time the new bot version runs." }),
+    h("ol", { class: "rules" },
+      h("li", { text: "Check that bot.py, strategies.py, publisher.py and the workflow file in your repo are the new versions." }),
+      h("li", { text: "Open the repo's Actions tab, choose Trading Bot, and press Run workflow." }),
+      h("li", { text: "When the run finishes, come back here and press Refresh." })),
+    h("p", { class: "small muted", style: "margin-top:12px", text: "Technical detail: " + err.message }),
+    h("div", { style: "margin-top:12px" }, h("button", { class: "btn", type: "button", onclick: () => setDemo(true) }, "Preview with sample data")));
+}
+
+let demoCache = null;
+async function refresh() {
+  if (inflight) return;
+  inflight = true;
+  app.classList.add("loading");
+  try {
+    if (ui.demo) { demoCache = demoCache || makeDemo(); model = demoCache; model.loadedAt = Date.now(); lastError = null; }
+    else { model = await loadLive(); lastError = null; }
+  } catch (e) {
+    lastError = e;
+    if (!model || model.demo) model = null;
+  } finally {
+    inflight = false;
+    app.classList.remove("loading");
+  }
+  render();
+}
+function setDemo(on) { ui.demo = on; model = null; lastError = null; render(); refresh(); }
+function applyTheme() {
+  const root = document.documentElement;
+  if (ui.theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", ui.theme);
+}
+
+$("#refresh").addEventListener("click", refresh);
+$("#auto").addEventListener("click", () => { ui.auto = !ui.auto; store.set("auto", ui.auto ? "on" : "off"); renderHeader(); });
+$("#demo").addEventListener("click", () => setDemo(!ui.demo));
+$("#theme").addEventListener("click", () => { ui.theme = ui.theme === "auto" ? "light" : ui.theme === "light" ? "dark" : "auto"; store.set("theme", ui.theme); applyTheme(); renderHeader(); requestAnimationFrame(drawAll); });
+$("#strategy").addEventListener("change", (e) => { ui.strategy = e.target.value; refresh(); });
+
+let resizeTimer = null, lastW = 0;
+new ResizeObserver(() => {
+  const w = app.clientWidth;
+  if (w === lastW) return;
+  lastW = w;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawAll, 120);
+}).observe(app);
+
+setInterval(() => {
+  if (!model) return;
+  updateAgo();
+  if (ui.auto && !ui.demo && !document.hidden && Date.now() - model.loadedAt >= CONFIG.refreshSeconds * 1000) refresh();
+}, 5000);
+
+applyTheme();
+refresh();
+})();
+</script>
+</body>
+</html>
