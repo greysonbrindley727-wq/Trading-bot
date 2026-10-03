@@ -1,4 +1,6 @@
 """
+File version: 1.0.0
+
 Trading strategies.
 
 Each strategy answers one question: "given the recent prices for this
